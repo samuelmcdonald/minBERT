@@ -34,42 +34,33 @@ class BertSelfAttention(nn.Module):
     proj = proj.transpose(1, 2)
     return proj
 
-  def attention(self, key, query, value, attention_mask=None):
-    # each attention is calculated following eq (1) of https://arxiv.org/pdf/1706.03762.pdf
-    # attention scores are calculated by multiply query and key 
-    # and get back a score matrix S of [bs, num_attention_heads, seq_len, seq_len]
-    # S[*, i, j, k] represents the (unnormalized)attention score between the j-th and k-th token, given by i-th attention head
-    # before normalizing the scores, use the attention mask to mask out the padding token scores
-    # Note again: in the attention_mask non-padding tokens with 0 and padding tokens with a large negative number 
+def attention(self, key, query, value, attention_mask=None):
+    # Calculate the dot product between query and key
+    scores = torch.matmul(query, key.transpose(-2, -1))
 
-    # normalize the scores
-    # multiply the attention scores to the value and get back V'
-    # next, we need to concat multi-heads and recover the original shape [bs, seq_len, num_attention_heads * attention_head_size = hidden_size]
+    # Scale the scores
+    scores = scores / math.sqrt(self.attention_head_size)
 
-    ### TODO
-     # Step 1: Calculate the dot product of Q and K
-    attention_scores = torch.matmul(query, key.transpose(-2, -1))
-    
-    # Scale scores by the square root of the dimensionality of the keys
-    d_k = key.size(-1)
-    attention_scores = attention_scores / math.sqrt(d_k)
-    
-    # Step 2: Apply attention mask (if provided)
     if attention_mask is not None:
-        attention_scores = attention_scores + attention_mask
-    
-    # Step 3: Normalize the scores with softmax
-    attention_probs = F.softmax(attention_scores, dim=-1)
-    
-    # Step 4: Apply dropout (optional)
-    attention_probs = self.dropout(attention_probs)
-    
-    # Step 5: Multiply scores by V
-    attention_output = torch.matmul(attention_probs, value)
-    
-    return attention_output
+        scores += attention_mask
 
-  def forward(self, hidden_states, attention_mask):
+    # Apply softmax to get the attention probabilities
+    attention_probs = nn.Softmax(dim=-1)(scores)
+
+    # Apply dropout
+    attention_probs = self.dropout(attention_probs)
+
+    # Multiply the attention probabilities with the value to get the final attention vector
+    context_layer = torch.matmul(attention_probs, value)
+
+    # Concatenate the heads together
+    context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
+    new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)
+    context_layer = context_layer.view(*new_context_layer_shape)
+
+    return context_layer
+
+def forward(self, hidden_states, attention_mask):
     """
     hidden_states: [bs, seq_len, hidden_state]
     attention_mask: [bs, 1, 1, seq_len]
